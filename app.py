@@ -20,9 +20,7 @@ class AppConfig:
     DEFAULT_THROUGHPUT = 10
     SYNC_THRESHOLD_DEFAULT = 0
     API_TIMEOUT = 20
-    LOADING_DEFAULT = (
-        "✅ Ready! <br> Think together with AI. Use Shift+Enter to toggle generation"
-    )
+
 
 
 class DynamicState:
@@ -34,6 +32,7 @@ class DynamicState:
         self.in_cot = True
         self.current_language = "en"
         self.waiting_api = False  # 新增等待状态标志
+        self.label_passthrough = False
 
     def control_button_handler(self):
         original_state = self.should_stream
@@ -55,8 +54,10 @@ class DynamicState:
         )
         control_variant = "secondary" if self.should_stream else "primary"
         # 处理等待状态显示
-        if self.waiting_api:
+        if self.waiting_api and self.should_stream:
             status_suffix = lang_data["waiting_api"]
+        elif self.waiting_api and not self.should_stream:
+            status_suffix = lang_data["api_retry"]
         else:
             status_suffix = (
                 lang_data["completed"]
@@ -64,18 +65,20 @@ class DynamicState:
                 else lang_data["interrupted"]
             )
         editor_label = f"{lang_data['editor_label']} - {status_suffix}"
-
-        return (
+        output = (
             gr.update(value=control_value, variant=control_variant),
-            gr.update(label=editor_label),
+            gr.update() if self.label_passthrough else gr.update(label=editor_label),
             gr.update(interactive=not self.should_stream),
         )
-
+        self.label_passthrough = False
+        return output
+    
     def reset_workspace(self):
         """重置工作区状态"""
         self.stream_completed = False
         self.should_stream = False
         self.in_cot = True
+        self.waiting_api = False
         return self.ui_state_controller() + (
             "",
             "",
@@ -114,6 +117,7 @@ class ConvoState:
         self.current_language = "en"
         self.convo = []
         self.initialize_new_round()
+        self.is_error = False
 
     def initialize_new_round(self):
         self.current = {}
@@ -179,7 +183,7 @@ class ConvoState:
             )
             for chunk in response_stream:
                 chunk_content = chunk.choices[0].delta.content
-                if coordinator.should_pause_for_human(full_response):
+                if coordinator.should_pause_for_human(full_response) and dynamic_state.in_cot:
                     dynamic_state.should_stream = False
                 if not dynamic_state.should_stream:
                     break
@@ -205,7 +209,7 @@ class ConvoState:
                         else lang_data["loading_output"]
                     )
                     editor_label = f"{lang_data['editor_label']} - {status}"
-                    yield full_response, gr.update(
+                    yield self.current["cot"] + ("</think>" if think_complete else ""), gr.update(
                         label=editor_label
                     ), self.flatten_output()
 
@@ -213,22 +217,22 @@ class ConvoState:
                     start_time = time.time()
                     while (
                         time.time() - start_time
-                    ) < interval and dynamic_state.should_stream:
+                    ) < interval and dynamic_state.should_stream and dynamic_state.in_cot:
                         time.sleep(0.005)
 
         except Exception as e:
-            error_msg = LANGUAGE_CONFIG[self.current_language].get("error", "Error")
-            full_response += f"\n\n[{error_msg}: {str(e)}]"
-            editor_label = f"{lang_data['editor_label']} - {error_msg}"
-            yield full_response, gr.update(
-                label=editor_label
-            ), self.flatten_output() + [
-                {
-                    "role": "assistant",
-                    "content": error_msg,
-                    "metadata": {"title": f"❌Error"},
-                }
-            ]
+            if str(e) == "list index out of range":
+                dynamic_state.stream_completed = True                
+            else:
+                if str(e) == "The read operation timed out":
+                    error_msg = lang_data["api_interrupted"]
+                else:
+                    error_msg = "❓ " + str(e)
+                # full_response += f"\n\n[{error_msg}: {str(e)}]"
+                editor_label_error = f"{lang_data['editor_label']} - {error_msg}"
+                self.is_error = True
+                dynamic_state.label_passthrough = True
+
 
         finally:
             dynamic_state.should_stream = False
@@ -240,7 +244,18 @@ class ConvoState:
                 else lang_data["interrupted"]
             )
             editor_label = f"{lang_data['editor_label']} - {final_status}"
-            yield full_response, gr.update(label=editor_label), self.flatten_output()
+            if not self.is_error:
+                yield self.current["cot"] + ("</think>" if not dynamic_state.in_cot else ""), gr.update(label=editor_label), self.flatten_output()
+            else:
+                yield self.current["cot"] + ("</think>" if not dynamic_state.in_cot else ""), gr.update(label=editor_label_error), self.flatten_output() + [
+                {
+                    "role": "assistant",
+                    "content": error_msg,
+                    "metadata": {"title": f"❌Error"},
+                }
+            ]
+            self.is_error =  False
+            
 
 
 def update_interface_language(selected_lang, convo_state, dynamic_state):
@@ -291,9 +306,17 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
     convo_state = gr.State(ConvoState)
     dynamic_state = gr.State(DynamicState)
 
+    bot_default = LANGUAGE_CONFIG["en"]["bot_default"] + [
+                    {
+                        "role": "assistant",
+                        "content": f"Running `{os.getenv('API_MODEL')}` @ {os.getenv('API_URL')}  \n Performance subjects to API provider situation",
+                        "metadata": {"title": f"API INFO"},
+                    }
+                ]
+
     with gr.Row(variant=""):
         title_md = gr.Markdown(
-            f"## {LANGUAGE_CONFIG['en']['title']} \n GitHub: https://github.com/Intelligent-Internet/CoT-Lab-Demo",
+            f"{LANGUAGE_CONFIG['en']['title']} ",
             container=False,
         )
         lang_selector = gr.Dropdown(
@@ -332,14 +355,7 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
             chatbot = gr.Chatbot(
                 type="messages",
                 height=300,
-                value=LANGUAGE_CONFIG["en"]["bot_default"]
-                + [
-                    {
-                        "role": "assistant",
-                        "content": f"Running `{os.getenv('API_MODEL')}` @ {os.getenv('API_URL')}  \n Proformance subjects to API provider situation",
-                        "metadata": {"title": f"API INFO"},
-                    }
-                ],
+                value=bot_default,
                 group_consecutive_messages=False,
                 show_copy_all_button=True,
                 show_share_button=True,
@@ -413,6 +429,7 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
         [dynamic_state],
         stateful_ui + (thought_editor, prompt_input, chatbot),
         concurrency_limit=None,
+        show_progress=False
     )
 
     lang_selector.change(

@@ -1,7 +1,7 @@
 # lang.py
 LANGUAGE_CONFIG = {
     "en": {
-        "title": "CoT-Lab: Human-AI Co-Thinking Laboratory \nFollow, learn, and iterate the thought within one turn. Consider cloning the repo and run with your own API key for a better experience.",
+        "title": "## CoT-Lab: Human-AI Co-Thinking Laboratory \nFollow, learn, and iterate the thought within one turn. Consider clone the repo and run with your own API key for a better experience.  \n GitHub: https://github.com/Intelligent-Internet/CoT-Lab-Demo",
         "prompt_label": "Task Description - Prompt",
         "prompt_placeholder": "Enter your prompt here...",
         "editor_label": "Thought Editor",
@@ -14,7 +14,7 @@ LANGUAGE_CONFIG = {
         "throughput_info": "Tokens/s - 5:Learn, 10:Follow, 50:Skim",
         "language_label": "Language",
         "loading_thinking": "🤖 AI Thinking ↓ Shift+Enter to Pause",
-        "loading_output": "🖨️ Result Writing ↓ Shift+Enter to Pause",
+        "loading_output": "🖨️ Result Writing → (Pause & submit to reroll the result)",
         "interrupted": "🤔 Pause, Human thinking time - **EDIT THOUGHTS BELOW**",
         "completed": "✅ Completed → Check overview",
         "error": "Error",
@@ -33,10 +33,13 @@ LANGUAGE_CONFIG = {
             },
         ],
         "editor_default": "AI thought will start with this, leave blank to think freely",
-        "waiting_api": "⏳ Waiting for Deepseek API response",
+        "waiting_api": "⏳ Waiting for API response",
+        "api_retry": "🔁 API no response, hit Shift+Enter to try again.",
+        "api_interrupted": "⚠️ Pasued, API connection interrupted. Hit Shift+Enter to reconnect"
+
     },
     "zh": {
-        "title": "CoT-Lab: 人机协同思维实验室\n在一轮对话中跟随、学习、迭代思维链。克隆Space并使用自己的API KEY可以获得更好的体验。",
+        "title": "## CoT-Lab: 人机协同思维实验室\n在一轮对话中跟随、学习、迭代思维链。克隆Space并使用自己的API KEY可以获得更好的体验。  \n GitHub: https://github.com/Intelligent-Internet/CoT-Lab-Demo",
         "prompt_label": "任务描述 - 提示词",
         "prompt_placeholder": "在此输入您的问题...",
         "editor_label": "思维编辑器",
@@ -48,8 +51,8 @@ LANGUAGE_CONFIG = {
         "throughput_label": "⏱ 同步思考速度",
         "throughput_info": "词元/秒 - 5:学习, 10:跟读, 50:跳读",
         "language_label": "界面语言",
-        "loading_thinking": "🤖 AI思考中... **Shift+Enter**可暂停",
-        "loading_output": "🖨️ 结果输出中... **Shift+Enter**可暂停",
+        "loading_thinking": "🤖 AI思考中 ↓ Shift+Enter可暂停",
+        "loading_output": "🖨️ 结果输出中 → (暂停再提交会重新生成结果部分)",
         "interrupted": "🤔 暂停，人类思考回合 **下面的思考过程可以编辑**",
         "completed": "✅ 已完成 → 查看完整对话",
         "error": "错误",
@@ -69,6 +72,8 @@ LANGUAGE_CONFIG = {
             {"role": "assistant", "content": "**Shift+Enter** 可以暂停/继续AI生成"},
         ],
         "editor_default": "AI思维会以此开头，留空即为默认思考",
-        "waiting_api": "⏳ 等待Deepseek API响应",
+        "waiting_api": "⏳ 等待API响应",
+        "api_retry": "🔁 API无响应, Shift+Enter 重试一次试试？",
+        "api_interrupted": "⚠️ 暂停，API连接意外中断，Shift+Enter 可重连"
     },
 }
