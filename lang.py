@@ -1,7 +1,7 @@
 # lang.py
 LANGUAGE_CONFIG = {
     "en": {
-        "title": "CoT-Lab: Human-AI Co-Thinking Laboratory \nFollow, learn, and iterate the thought within one turn. Consider clone the repo and run with your own API key for better experience.",
+        "title": "CoT-Lab: Human-AI Co-Thinking Laboratory \nFollow, learn, and iterate the thought within one turn. Consider cloning the repo and run with your own API key for a better experience.",
         "prompt_label": "Task Description - Prompt",
         "prompt_placeholder": "Enter your prompt here...",
         "editor_label": "Thought Editor",
