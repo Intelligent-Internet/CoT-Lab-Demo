@@ -35,7 +35,8 @@ LANGUAGE_CONFIG = {
         "editor_default": "AI thought will start with this, leave blank to think freely",
         "waiting_api": "⏳ Waiting for API response",
         "api_retry": "🔁 API no response, hit Shift+Enter to try again.",
-        "api_interrupted": "⚠️ Pasued, API connection interrupted. Hit Shift+Enter to reconnect"
+        "api_interrupted": "⚠️ Pasued, API connection interrupted. Hit Shift+Enter to reconnect",
+        "result_editing_toggle": "Editor includes Result"
 
     },
     "zh": {
@@ -74,6 +75,8 @@ LANGUAGE_CONFIG = {
         "editor_default": "AI思维会以此开头，留空即为默认思考",
         "waiting_api": "⏳ 等待API响应",
         "api_retry": "🔁 API无响应, Shift+Enter 重试一次试试？",
-        "api_interrupted": "⚠️ 暂停，API连接意外中断，Shift+Enter 可重连"
+        "api_interrupted": "⚠️ 暂停，API连接意外中断，Shift+Enter 可重连",
+        "result_editing_toggle": "编辑器包括最终答案"
+
     },
 }

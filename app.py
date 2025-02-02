@@ -9,6 +9,9 @@ from lang import LANGUAGE_CONFIG
 # 环境变量预校验
 load_dotenv(override=True)
 required_env_vars = ["API_KEY", "API_URL", "API_MODEL"]
+secondary_api_exists = all(
+    os.getenv(f"{var}_2") for var in ["API_KEY", "API_URL", "API_MODEL"]
+)
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
     raise EnvironmentError(
@@ -20,7 +23,6 @@ class AppConfig:
     DEFAULT_THROUGHPUT = 10
     SYNC_THRESHOLD_DEFAULT = 0
     API_TIMEOUT = 20
-
 
 
 class DynamicState:
@@ -72,17 +74,19 @@ class DynamicState:
         )
         self.label_passthrough = False
         return output
-    
+
     def reset_workspace(self):
         """重置工作区状态"""
         self.stream_completed = False
         self.should_stream = False
         self.in_cot = True
         self.waiting_api = False
+
         return self.ui_state_controller() + (
             "",
             "",
             LANGUAGE_CONFIG["en"]["bot_default"],
+            DEFAULT_PERSISTENT,
         )
 
 
@@ -118,12 +122,22 @@ class ConvoState:
         self.convo = []
         self.initialize_new_round()
         self.is_error = False
+        self.result_editing_toggle = False
+
+    def get_api_config(self, language):
+        suffix = "_2" if language == "zh" and secondary_api_exists else ""
+        return {
+            "key": os.getenv(f"API_KEY{suffix}"),
+            "url": os.getenv(f"API_URL{suffix}"),
+            "model": os.getenv(f"API_MODEL{suffix}"),
+        }
 
     def initialize_new_round(self):
         self.current = {}
         self.current["user"] = ""
         self.current["cot"] = ""
         self.current["result"] = ""
+        self.current["raw"] = ""
         self.convo.append(self.current)
 
     def flatten_output(self):
@@ -146,12 +160,17 @@ class ConvoState:
         lang_data = LANGUAGE_CONFIG[self.current_language]
         dynamic_state.stream_completed = False
         full_response = current_content
+        self.current["raw"] = full_response
+        api_config = self.get_api_config(self.current_language)
         api_client = OpenAI(
-            api_key=os.getenv("API_KEY"),
-            base_url=os.getenv("API_URL"),
+            api_key=api_config["key"],
+            base_url=api_config["url"],
             timeout=AppConfig.API_TIMEOUT,
         )
+
         coordinator = CoordinationManager(self.sync_threshold, current_content)
+
+        editor_output = current_content
 
         try:
 
@@ -183,14 +202,18 @@ class ConvoState:
             )
             for chunk in response_stream:
                 chunk_content = chunk.choices[0].delta.content
-                if coordinator.should_pause_for_human(full_response) and dynamic_state.in_cot:
+                if (
+                    coordinator.should_pause_for_human(full_response)
+                    and dynamic_state.in_cot
+                ):
                     dynamic_state.should_stream = False
                 if not dynamic_state.should_stream:
                     break
 
                 if chunk_content:
                     dynamic_state.waiting_api = False
-                    full_response += chunk_content
+                    full_response += chunk_content.replace("<think>", "")
+                    self.current["raw"] = full_response
                     # Update Convo State
                     think_complete = "</think>" in full_response
                     dynamic_state.in_cot = not think_complete
@@ -209,20 +232,28 @@ class ConvoState:
                         else lang_data["loading_output"]
                     )
                     editor_label = f"{lang_data['editor_label']} - {status}"
-                    yield self.current["cot"] + ("</think>" if think_complete else ""), gr.update(
+                    if self.result_editing_toggle:
+                        editor_output = full_response
+                    else:
+                        editor_output = self.current["cot"] + (
+                            "</think>" if think_complete else ""
+                        )
+                    yield editor_output, gr.update(
                         label=editor_label
                     ), self.flatten_output()
 
                     interval = 1.0 / self.throughput
                     start_time = time.time()
                     while (
-                        time.time() - start_time
-                    ) < interval and dynamic_state.should_stream and dynamic_state.in_cot:
+                        (time.time() - start_time) < interval
+                        and dynamic_state.should_stream
+                        and dynamic_state.in_cot
+                    ):
                         time.sleep(0.005)
 
         except Exception as e:
             if str(e) == "list index out of range":
-                dynamic_state.stream_completed = True                
+                dynamic_state.stream_completed = True
             else:
                 if str(e) == "The read operation timed out":
                     error_msg = lang_data["api_interrupted"]
@@ -232,7 +263,6 @@ class ConvoState:
                 editor_label_error = f"{lang_data['editor_label']} - {error_msg}"
                 self.is_error = True
                 dynamic_state.label_passthrough = True
-
 
         finally:
             dynamic_state.should_stream = False
@@ -245,17 +275,20 @@ class ConvoState:
             )
             editor_label = f"{lang_data['editor_label']} - {final_status}"
             if not self.is_error:
-                yield self.current["cot"] + ("</think>" if not dynamic_state.in_cot else ""), gr.update(label=editor_label), self.flatten_output()
+                yield editor_output, gr.update(
+                    label=editor_label
+                ), self.flatten_output()
             else:
-                yield self.current["cot"] + ("</think>" if not dynamic_state.in_cot else ""), gr.update(label=editor_label_error), self.flatten_output() + [
-                {
-                    "role": "assistant",
-                    "content": error_msg,
-                    "metadata": {"title": f"❌Error"},
-                }
-            ]
-            self.is_error =  False
-            
+                yield editor_output, gr.update(
+                    label=editor_label_error
+                ), self.flatten_output() + [
+                    {
+                        "role": "assistant",
+                        "content": error_msg,
+                        "metadata": {"title": f"❌Error"},
+                    }
+                ]
+            self.is_error = False
 
 
 def update_interface_language(selected_lang, convo_state, dynamic_state):
@@ -270,6 +303,14 @@ def update_interface_language(selected_lang, convo_state, dynamic_state):
         else lang_data["interrupted"]
     )
     editor_label = f"{base_editor_label} - {status_suffix}"
+    api_config = convo_state.get_api_config(selected_lang)
+    new_bot_content = [
+        {
+            "role": "assistant",
+            "content": f"{selected_lang} - Running `{api_config['model']}` @ {api_config['url']}",
+            "metadata": {"title": f"API INFO"},
+        }
+    ]
     return [
         gr.update(value=f"{lang_data['title']}"),
         gr.update(
@@ -296,23 +337,37 @@ def update_interface_language(selected_lang, convo_state, dynamic_state):
             value=lang_data["clear_btn"], interactive=not dynamic_state.should_stream
         ),
         gr.update(value=lang_data["introduction"]),
-        gr.update(value=lang_data["bot_default"], label=lang_data["bot_label"]),
+        gr.update(
+            value=lang_data["bot_default"] + new_bot_content,
+            label=lang_data["bot_label"],
+        ),
+        gr.update(label=lang_data["result_editing_toggle"]),
     ]
 
 
 theme = gr.themes.Base(font="system-ui", primary_hue="stone")
 
 with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
+    DEFAULT_PERSISTENT = {"prompt_input": "", "thought_editor": ""}
     convo_state = gr.State(ConvoState)
     dynamic_state = gr.State(DynamicState)
+    persistent_state = gr.BrowserState(DEFAULT_PERSISTENT)
 
     bot_default = LANGUAGE_CONFIG["en"]["bot_default"] + [
-                    {
-                        "role": "assistant",
-                        "content": f"Running `{os.getenv('API_MODEL')}` @ {os.getenv('API_URL')}  \n Performance subjects to API provider situation",
-                        "metadata": {"title": f"API INFO"},
-                    }
-                ]
+        {
+            "role": "assistant",
+            "content": f"Running `{os.getenv('API_MODEL')}` @ {os.getenv('API_URL')}",
+            "metadata": {"title": f"EN API INFO"},
+        }
+    ]
+    if secondary_api_exists:
+        bot_default.append(
+            {
+                "role": "assistant",
+                "content": f"Switch to zh ↗ to use SiliconFlow API: `{os.getenv('API_MODEL_2')}` @ {os.getenv('API_URL_2')}",
+                "metadata": {"title": f"CN API INFO"},
+            }
+        )
 
     with gr.Row(variant=""):
         title_md = gr.Markdown(
@@ -328,17 +383,17 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
         )
 
     with gr.Row(equal_height=True):
-
         with gr.Column(scale=1, min_width=400):
             prompt_input = gr.Textbox(
                 label=LANGUAGE_CONFIG["en"]["prompt_label"],
                 lines=2,
                 placeholder=LANGUAGE_CONFIG["en"]["prompt_placeholder"],
-                max_lines=5,
+                max_lines=2,
             )
             thought_editor = gr.Textbox(
                 label=f"{LANGUAGE_CONFIG['en']['editor_label']} - {LANGUAGE_CONFIG['en']['editor_default']}",
                 lines=16,
+                max_lines=16,
                 placeholder=LANGUAGE_CONFIG["en"]["editor_placeholder"],
                 autofocus=True,
                 elem_id="editor",
@@ -378,8 +433,21 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
                     label=LANGUAGE_CONFIG["en"]["throughput_label"],
                     info=LANGUAGE_CONFIG["en"]["throughput_info"],
                 )
+            result_editing_toggle = gr.Checkbox(
+                label=LANGUAGE_CONFIG["en"]["result_editing_toggle"],
+                interactive=True,
+                scale=0,
+                container=False,
+            )
 
             intro_md = gr.Markdown(LANGUAGE_CONFIG["en"]["introduction"], visible=False)
+
+    @demo.load(inputs=[persistent_state], outputs=[prompt_input, thought_editor])
+    def recover_persistent_state(persistant_state):
+        if persistant_state["prompt_input"] or persistant_state["thought_editor"]:
+            return persistant_state["prompt_input"], persistant_state["thought_editor"]
+        else:
+            return gr.update(), gr.update()
 
     # 交互逻辑
     stateful_ui = (control_button, thought_editor, next_turn_btn)
@@ -402,7 +470,12 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
         for response in convo_state.generate_ai_response(
             prompt, content, dynamic_state
         ):
-            yield response
+            yield response + (
+                {
+                    "prompt_input": convo_state.current["user"],
+                    "thought_editor": convo_state.current["cot"],
+                },
+            )
 
     gr.on(
         [control_button.click, prompt_input.submit, thought_editor.submit],
@@ -414,7 +487,7 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
     ).then(
         wrap_stream_generator,
         [convo_state, dynamic_state, prompt_input, thought_editor],
-        [thought_editor, thought_editor, chatbot],
+        [thought_editor, thought_editor, chatbot, persistent_state],
         concurrency_limit=1000,
     ).then(
         lambda d: d.ui_state_controller(),
@@ -427,9 +500,22 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
     next_turn_btn.click(
         lambda d: d.reset_workspace(),
         [dynamic_state],
-        stateful_ui + (thought_editor, prompt_input, chatbot),
+        stateful_ui + (thought_editor, prompt_input, chatbot, persistent_state),
         concurrency_limit=None,
-        show_progress=False
+        show_progress=False,
+    )
+
+    def toggle_editor_result(convo_state, allow):
+        setattr(convo_state, "result_editing_toggle", allow)
+        if allow:
+            return gr.update(value=convo_state.current["raw"])
+        else:
+            return gr.update(value=convo_state.current["cot"])
+
+    result_editing_toggle.change(
+        toggle_editor_result,
+        inputs=[convo_state, result_editing_toggle],
+        outputs=[thought_editor],
     )
 
     lang_selector.change(
@@ -446,6 +532,7 @@ with gr.Blocks(theme=theme, css_paths="styles.css") as demo:
             next_turn_btn,
             intro_md,
             chatbot,
+            result_editing_toggle,
         ],
         concurrency_limit=None,
     )
