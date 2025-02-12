@@ -63,22 +63,33 @@ Due to degraded performance of official DeepSeek API - We recommend seeking alte
 
 **Prerequisites**: Python 3.11+ | Valid [Deepseek API Key](https://platform.deepseek.com/) or OpenAI SDK compatible API.
 
-```bash
-# Clone repository
-git clone https://github.com/Intelligent-Internet/CoT-Lab-Demo
-cd CoT-Lab
+### Clone repository
 
-# Install dependencies
-pip install -r requirements.txt
+    git clone https://github.com/Intelligent-Internet/CoT-Lab-Demo
+    cd CoT-Lab-Demo
 
-# Configure environment
-API_KEY=sk-****
-API_URL=https://api.deepseek.com/beta
-API_MODEL=deepseek-reasoner
+### Add to your .env file
 
-# Launch application
-python app.py
-```
+API_KEY, API_URL, API_MODEL
+
+### Start virtual environment
+
+    python3 -m venv env
+    source env/bin/activate
+
+For Windows
+
+    python3 -m venv env
+    .\env\Scripts\activate
+
+### Install dependencies
+
+    pip install -r requirements.txt
+
+### Launch application
+
+    python app.py
+
 
 
 ## 📄 License

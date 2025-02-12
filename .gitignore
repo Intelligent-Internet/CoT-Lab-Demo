@@ -1,5 +1,6 @@
 # Environment files
 .env
+env/
 .apikey  # 同时忽略旧密钥文件
 
 # Python
